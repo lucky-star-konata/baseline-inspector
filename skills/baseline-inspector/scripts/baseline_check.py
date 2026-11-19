@@ -32,6 +32,31 @@ STATUS_ORDER = {"FAIL": 0, "REVIEW": 1, "PASS": 2, "SKIP": 3}
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 SEVERITY_LABEL = {"high": "high", "medium": "medium", "low": "low"}
 
+# 供 --list-checks 使用的静态清单，与实际检查项保持同步
+CHECK_CATALOG = [
+    ("Windows", "win-uac", "UAC 用户账户控制", "high"),
+    ("Windows", "win-smb1", "SMBv1 协议", "high"),
+    ("Windows", "win-smb-signing", "SMB 签名", "medium"),
+    ("Windows", "win-guest-auth", "不安全的来宾登录", "medium"),
+    ("Windows", "win-rdp-nla", "RDP 网络级认证", "medium"),
+    ("Windows", "win-firewall", "Windows 防火墙", "high"),
+    ("Windows", "win-defender", "Defender 实时防护", "high"),
+    ("Windows", "win-guest", "Guest 账户", "medium"),
+    ("Windows", "win-autologon", "自动登录与明文密码", "high"),
+    ("Windows", "win-powershell-logging", "PowerShell 脚本块日志", "medium"),
+    ("Windows", "win-password-policy", "密码与锁定策略", "high"),
+    ("Linux", "linux-ssh-root", "SSH 禁止 root 登录", "high"),
+    ("Linux", "linux-ssh-password", "SSH 禁用密码登录", "high"),
+    ("Linux", "linux-ssh-maxauth", "SSH 最大认证尝试次数", "medium"),
+    ("Linux", "linux-password-policy", "密码有效期与长度", "medium"),
+    ("Linux", "linux-umask", "默认 umask", "medium"),
+    ("Linux", "linux-cron-perm", "/etc/crontab 权限", "high"),
+    ("Linux", "linux-sudo-nopasswd", "sudo NOPASSWD", "medium"),
+    ("Linux", "linux-shadow-perm", "/etc/shadow 文件权限", "high"),
+    ("Linux", "linux-empty-password", "空密码账户", "high"),
+    ("Linux", "linux-firewall", "主机防火墙", "high"),
+]
+
 
 def get_version() -> str:
     try:
@@ -107,6 +132,26 @@ def windows_checks():
         "" if smb1 is not None else "未显式配置，部分新系统默认禁用，需人工确认。",
     ))
 
+    smb_sign = reg(r"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters", "RequireSecuritySignature")
+    results.append(make_result(
+        "win-smb-signing", "SMB 签名", "medium",
+        "PASS" if smb_sign == 1 else ("FAIL" if smb_sign == 0 else "REVIEW"),
+        f"RequireSecuritySignature={smb_sign}", "RequireSecuritySignature=1",
+        "在组策略中启用「Microsoft 网络服务器：数字签名的通信（始终）」。",
+    ))
+
+    insecure_guest = reg(
+        r"SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters",
+        "AllowInsecureGuestAuth",
+    )
+    results.append(make_result(
+        "win-guest-auth", "不安全的来宾登录", "medium",
+        "PASS" if insecure_guest in (0, None) else "FAIL",
+        f"AllowInsecureGuestAuth={insecure_guest}", "0 或未配置",
+        "在组策略中禁用不安全的来宾身份验证。",
+        "" if insecure_guest is not None else "未配置，现代系统默认禁用，建议人工确认。",
+    ))
+
     deny_rdp = reg(r"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections")
     if deny_rdp == 1:
         results.append(make_result(
@@ -178,6 +223,33 @@ def windows_checks():
         "在「本地用户和组」中禁用 Guest 账户。",
     ))
 
+    auto_logon = reg(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon", "AutoAdminLogon")
+    default_password = reg(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon", "DefaultPassword")
+    autologon_on = str(auto_logon).strip() == "1"
+    if autologon_on or default_password:
+        autologon_status = "FAIL"
+    else:
+        autologon_status = "PASS"
+    results.append(make_result(
+        "win-autologon", "自动登录与明文密码", "high",
+        autologon_status,
+        f"AutoAdminLogon={auto_logon}, DefaultPassword={'已设置' if default_password else '未设置'}",
+        "AutoAdminLogon=0 且无 DefaultPassword",
+        "关闭自动登录，删除注册表中的 DefaultPassword 值，并更换已泄露的密码。",
+    ))
+
+    script_log = reg(
+        r"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging",
+        "EnableScriptBlockLogging",
+    )
+    results.append(make_result(
+        "win-powershell-logging", "PowerShell 脚本块日志", "medium",
+        "PASS" if script_log == 1 else ("FAIL" if script_log == 0 else "REVIEW"),
+        f"EnableScriptBlockLogging={script_log}", "EnableScriptBlockLogging=1",
+        "通过组策略启用 PowerShell 脚本块日志，便于检测可疑命令。",
+        "" if script_log is not None else "未配置该策略，需人工确认是否由其他日志方案覆盖。",
+    ))
+
     policy = {"MinimumPasswordLength": None, "LockoutBadCount": None}
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -242,6 +314,21 @@ def read_sshd_config():
     return config
 
 
+def read_login_defs():
+    path = Path("/etc/login.defs")
+    if not path.is_file():
+        return None
+    config = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            config[parts[0].upper()] = parts[1].strip()
+    return config
+
+
 def linux_checks():
     results = []
     config = read_sshd_config()
@@ -288,6 +375,105 @@ def linux_checks():
                 f"MaxAuthTries={max_auth}", "<=4",
                 "设置 MaxAuthTries 4 并重启 sshd。",
             ))
+
+    login_defs = read_login_defs()
+    if login_defs is None:
+        results.append(make_result(
+            "linux-password-policy", "密码有效期与长度", "medium",
+            "SKIP", "未找到 /etc/login.defs", "PASS_MAX_DAYS<=90, PASS_MIN_LEN>=8",
+            "非本机用户库环境，跳过。",
+        ))
+        results.append(make_result(
+            "linux-umask", "默认 umask", "medium",
+            "SKIP", "未找到 /etc/login.defs", "027 或更严格",
+            "非本机用户库环境，跳过。",
+        ))
+    else:
+        max_days = login_defs.get("PASS_MAX_DAYS", "")
+        min_len = login_defs.get("PASS_MIN_LEN", "")
+        try:
+            days_ok = int(max_days) <= 90
+        except ValueError:
+            days_ok = False
+        try:
+            len_ok = int(min_len) >= 8
+        except ValueError:
+            len_ok = False
+        results.append(make_result(
+            "linux-password-policy", "密码有效期与长度", "medium",
+            "PASS" if days_ok and len_ok else "FAIL",
+            f"PASS_MAX_DAYS={max_days}, PASS_MIN_LEN={min_len}",
+            "PASS_MAX_DAYS<=90, PASS_MIN_LEN>=8",
+            "在 /etc/login.defs 中调整 PASS_MAX_DAYS 与 PASS_MIN_LEN。",
+        ))
+        umask_value = login_defs.get("UMASK", "")
+        try:
+            umask_ok = int(umask_value, 8) & 0o022 == 0
+        except ValueError:
+            umask_ok = False
+        results.append(make_result(
+            "linux-umask", "默认 umask", "medium",
+            "PASS" if umask_ok else ("REVIEW" if not umask_value else "FAIL"),
+            f"UMASK={umask_value or '未配置'}", "027 或更严格",
+            "在 /etc/login.defs 中设置 UMASK 027。",
+        ))
+
+    cron = Path("/etc/crontab")
+    if cron.exists():
+        try:
+            cron_mode = stat.S_IMODE(cron.stat().st_mode)
+            results.append(make_result(
+                "linux-cron-perm", "/etc/crontab 权限", "high",
+                "PASS" if cron_mode & 0o022 == 0 else "FAIL",
+                oct(cron_mode), "不含组/其他可写",
+                "chmod 600 /etc/crontab，并检查是否有非预期任务。",
+            ))
+        except PermissionError:
+            results.append(make_result(
+                "linux-cron-perm", "/etc/crontab 权限", "high",
+                "REVIEW", "无读取权限", "不含组/其他可写", "使用 root 或 sudo 运行。",
+            ))
+    else:
+        results.append(make_result(
+            "linux-cron-perm", "/etc/crontab 权限", "high",
+            "SKIP", "文件不存在", "不含组/其他可写", "系统未使用该文件。",
+        ))
+
+    sudo_files = []
+    sudoers = Path("/etc/sudoers")
+    if sudoers.is_file():
+        sudo_files.append(sudoers)
+    sudoers_dir = Path("/etc/sudoers.d")
+    if sudoers_dir.is_dir():
+        sudo_files += sorted(path for path in sudoers_dir.iterdir() if path.is_file())
+    nopasswd_count = 0
+    unreadable = 0
+    for path in sudo_files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except PermissionError:
+            unreadable += 1
+            continue
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "NOPASSWD:" in stripped:
+                nopasswd_count += 1
+    if not sudo_files:
+        sudo_status, sudo_detail = "SKIP", "未找到 sudoers 配置"
+    elif nopasswd_count:
+        sudo_status, sudo_detail = "REVIEW", "NOPASSWD 不一定是问题，需确认是否必要"
+    elif unreadable:
+        sudo_status, sudo_detail = "REVIEW", "部分文件无读取权限"
+    else:
+        sudo_status, sudo_detail = "PASS", ""
+    results.append(make_result(
+        "linux-sudo-nopasswd", "sudo NOPASSWD", "medium",
+        sudo_status,
+        f"命中 {nopasswd_count} 条" if sudo_files else "无配置",
+        "无 NOPASSWD 或已确认必要性",
+        "收敛 NOPASSWD 范围，避免普通账号无密码提权。",
+        sudo_detail,
+    ))
 
     shadow = Path("/etc/shadow")
     if shadow.exists():
@@ -433,8 +619,19 @@ def main(argv=None) -> int:
         help="达到该级别的 FAIL 时返回非零，默认 high",
     )
     parser.add_argument("--only", action="append", default=[], help="只跑指定检查 ID，可多次指定")
+    parser.add_argument("--list-checks", action="store_true", help="列出全部检查项 ID 与级别")
     parser.add_argument("--version", action="version", version=f"%(prog)s {get_version()}")
     args = parser.parse_args(argv)
+
+    if args.list_checks:
+        print(f"baseline-inspector {get_version()} · 检查项\n")
+        current = None
+        for platform_name, check_id, title, severity in CHECK_CATALOG:
+            if platform_name != current:
+                current = platform_name
+                print(f"[{current}]")
+            print(f"  {check_id:<24} {severity:<7} {title}")
+        return 0
 
     platform_name = platform.system()
     meta = {

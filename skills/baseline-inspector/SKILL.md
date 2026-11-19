@@ -44,10 +44,14 @@ python scripts/baseline_check.py --fail-on high
 | --- | --- | --- |
 | `win-uac` | UAC 开关 | `EnableLUA = 1` |
 | `win-smb1` | SMBv1 | `SMB1 = 0` |
+| `win-smb-signing` | SMB 签名 | `RequireSecuritySignature = 1` |
+| `win-guest-auth` | 不安全的来宾登录 | `AllowInsecureGuestAuth = 0` |
 | `win-rdp-nla` | RDP 网络级认证 | `UserAuthentication = 1` 或 RDP 已关闭 |
 | `win-firewall` | 防火墙三配置文件 | `EnableFirewall = 1` |
 | `win-defender` | Defender 实时防护 | 开启 |
 | `win-guest` | Guest 账户 | 禁用 |
+| `win-autologon` | 自动登录与明文密码 | `AutoAdminLogon = 0` 且无 `DefaultPassword` |
+| `win-powershell-logging` | PowerShell 脚本块日志 | `EnableScriptBlockLogging = 1` |
 | `win-password-policy` | 密码长度与锁定策略 | 长度 ≥ 8，锁定阈值 1–5 |
 
 **Linux**
@@ -57,9 +61,15 @@ python scripts/baseline_check.py --fail-on high
 | `linux-ssh-root` | `PermitRootLogin` | `no` |
 | `linux-ssh-password` | `PasswordAuthentication` | `no` |
 | `linux-ssh-maxauth` | `MaxAuthTries` | ≤ 4 |
+| `linux-password-policy` | `PASS_MAX_DAYS` / `PASS_MIN_LEN` | ≤ 90 / ≥ 8 |
+| `linux-umask` | 默认 `UMASK` | 027 或更严格 |
+| `linux-cron-perm` | `/etc/crontab` 权限 | 不含组/其他可写 |
+| `linux-sudo-nopasswd` | sudo NOPASSWD | 无或已确认必要性 |
 | `linux-shadow-perm` | `/etc/shadow` 权限 | 不含组/其他可读 |
 | `linux-empty-password` | 空密码账户 | 不存在 |
 | `linux-firewall` | ufw / firewalld | active |
+
+用 `--list-checks` 可列出全部 ID。
 
 ## 输出契约
 

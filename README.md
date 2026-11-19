@@ -8,10 +8,12 @@
 
 | 平台 | 检查项 |
 | --- | --- |
-| Windows | UAC、SMBv1、RDP NLA、防火墙（域/专用/公用）、Defender 实时防护、Guest 账户、密码策略 |
-| Linux | SSH root 登录、SSH 密码登录、SSH MaxAuthTries、/etc/shadow 权限、空密码账户、防火墙状态 |
+| Windows | UAC、SMBv1、SMB 签名、不安全的来宾登录、RDP NLA、防火墙（域/专用/公用）、Defender 实时防护、Guest 账户、自动登录与明文密码、PowerShell 脚本块日志、密码策略 |
+| Linux | SSH root 登录、SSH 密码登录、SSH MaxAuthTries、密码有效期与长度、默认 umask、/etc/crontab 权限、sudo NOPASSWD、/etc/shadow 权限、空密码账户、防火墙状态 |
 
 所有检查均为只读：读注册表、读配置文件、执行查询类命令，不修改任何系统设置。
+
+用 `--list-checks` 可以列出全部检查项 ID 与级别。
 
 ## 快速开始
 
