@@ -60,7 +60,7 @@ CHECK_CATALOG = [
 
 def get_version() -> str:
     try:
-        return VERSION_FILE.read_text(encoding="utf-8").strip() or "0.0.0"
+        return VERSION_FILE.read_text(encoding="utf-8-sig").strip() or "0.0.0"
     except OSError:
         return "0.0.0"
 
