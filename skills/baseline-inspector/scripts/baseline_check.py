@@ -333,14 +333,15 @@ def linux_checks():
     results = []
     config = read_sshd_config()
     if config is None:
-        for check_id, title, severity in (
-            ("linux-ssh-root", "SSH 禁止 root 登录", "high"),
-            ("linux-ssh-password", "SSH 禁用密码登录", "high"),
-            ("linux-ssh-maxauth", "SSH 最大认证尝试次数", "medium"),
+        for check_id, title, severity, expected in (
+            ("linux-ssh-root", "SSH 禁止 root 登录", "high", "no"),
+            ("linux-ssh-password", "SSH 禁用密码登录", "high", "no"),
+            ("linux-ssh-maxauth", "SSH 最大认证尝试次数", "medium", "<=4"),
         ):
             results.append(make_result(
                 check_id, title, severity, "REVIEW",
-                "未找到 /etc/ssh/sshd_config", "", "确认是否安装并启用了 SSH 服务。",
+                "未找到 /etc/ssh/sshd_config", expected,
+                "确认是否安装并启用了 SSH 服务。",
             ))
     else:
         root_login = config.get("permitrootlogin", "prohibit-password")
