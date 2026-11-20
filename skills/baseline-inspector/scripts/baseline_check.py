@@ -441,14 +441,17 @@ def linux_checks():
         ))
 
     sudo_files = []
+    nopasswd_count = 0
+    unreadable = 0
     sudoers = Path("/etc/sudoers")
     if sudoers.is_file():
         sudo_files.append(sudoers)
     sudoers_dir = Path("/etc/sudoers.d")
     if sudoers_dir.is_dir():
-        sudo_files += sorted(path for path in sudoers_dir.iterdir() if path.is_file())
-    nopasswd_count = 0
-    unreadable = 0
+        try:
+            sudo_files += sorted(path for path in sudoers_dir.iterdir() if path.is_file())
+        except PermissionError:
+            unreadable += 1
     for path in sudo_files:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
