@@ -1,5 +1,7 @@
 # baseline-inspector
 
+[![CI](https://github.com/lucky-star-konata/baseline-inspector/actions/workflows/ci.yml/badge.svg)](https://github.com/lucky-star-konata/baseline-inspector/actions/workflows/ci.yml)
+
 只读的系统基线核查工具：检查主机安全配置是否符合基线要求，输出 PASS / FAIL / REVIEW 清单与修复建议，不改动任何配置。
 
 > 用于自有主机或已授权资产的安全加固检查。详见 [DISCLAIMER.md](DISCLAIMER.md)。
